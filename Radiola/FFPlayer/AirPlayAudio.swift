@@ -139,7 +139,8 @@ final class AirPlayAudio: @unchecked Sendable {
                 buffer.audioData.withUnsafeBytes { raw in
                     let floats = raw.bindMemory(to: Float32.self)
                     for i in 0 ..< count {
-                        pending.append(Int16(max(-1, min(1, floats[i])) * 32767))
+                        // Round to nearest: Int16(Float) alone truncates toward zero
+                        pending.append(Int16((max(-1, min(1, floats[i])) * 32767).rounded()))
                     }
                 }
                 ringBuffer.incReadIndex()
