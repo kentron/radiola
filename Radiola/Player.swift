@@ -132,11 +132,12 @@ class Player: NSObject {
 
         stop()
 
-        let audioDevice = AudioSytstem.device(byUID: settings.audioDevice)
-        audioDeviceUID = audioDevice?.UID
+        let airPlayDevice = AirPlayDevice(uid: settings.audioDevice)
+        let audioDevice = airPlayDevice == nil ? AudioSytstem.device(byUID: settings.audioDevice) : nil
+        audioDeviceUID = airPlayDevice?.uid ?? audioDevice?.UID
         let vol = isMuted ? 0.0 : volume
 
-        player.start(url: url, volume: vol, audioDevice: audioDevice)
+        player.start(url: url, volume: vol, audioDevice: audioDevice, airPlayDevice: airPlayDevice)
         AudioSytstem.debugAudioDevices(prefix: "[Player]")
 
         settings.lastStationUrl = station.url
@@ -297,8 +298,8 @@ class Player: NSObject {
      *
      * ****************************************/
     @objc private func onSettingsChanged() {
-        let newAudioDevice = AudioSytstem.device(byUID: settings.audioDevice)
-        if newAudioDevice?.UID != self.audioDeviceUID {
+        let newAudioDeviceUID = AirPlayDevice(uid: settings.audioDevice)?.uid ?? AudioSytstem.device(byUID: settings.audioDevice)?.UID
+        if newAudioDeviceUID != self.audioDeviceUID {
             debug("[Player] The current audio device has changed")
             debug("[Player]  - Config device UID:        \(settings.audioDevice ?? "nil")")
             debug("[Player]  - Player audio device UID:  \(audioDeviceUID ?? "nil")")
@@ -324,6 +325,11 @@ class Player: NSObject {
         debug("[Player]  - System default device ID: \(AudioSytstem.defaultOutputDeviceID().map(String.init) ?? "ERROR")")
 
         if !isPlaying {
+            return
+        }
+
+        // AirPlay output does not depend on the CoreAudio device list
+        if AirPlayDevice(uid: audioDeviceUID) != nil {
             return
         }
 

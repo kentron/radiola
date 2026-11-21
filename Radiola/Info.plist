@@ -13,6 +13,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_raop._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Radiola looks for AirPlay speakers on your local network to play radio on them.</string>
 	<key>NSSupportsSuddenTermination</key>
 	<true/>
 	<key>SUFeedURL</key>

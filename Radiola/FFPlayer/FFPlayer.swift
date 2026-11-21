@@ -59,6 +59,8 @@ extension FFPlayer {
         case playlistDownloadError
         case playlistEmptyResponse
         case playlistInvalidData
+        case airPlayConnectError
+        case airPlayAuthError
     }
 }
 
@@ -110,12 +112,12 @@ class FFPlayer {
     /* ****************************************
      *
      * ****************************************/
-    func start(url: URL, volume: Float, audioDevice: AudioDevice?) {
+    func start(url: URL, volume: Float, audioDevice: AudioDevice?, airPlayDevice: AirPlayDevice? = nil) {
         let currentStopTask = stopTask
 
         playTask = Task {
             await currentStopTask?.value
-            await actor.start(url: url, volume: volume, audioDevice: audioDevice, maxRetryCount: maxRetriesCount)
+            await actor.start(url: url, volume: volume, audioDevice: audioDevice, airPlayDevice: airPlayDevice, maxRetryCount: maxRetriesCount)
         }
     }
 
@@ -148,6 +150,7 @@ private actor FFPlayerActor {
     private let ringBuffer = RingBuffer(buffersCount: NUM_RING_BUFFERS, bufferSize: BUFFER_SIZE)
     private var decoder: FFDecoder
     private let macAudio: MacAudio
+    private let airPlayAudio: AirPlayAudio
 
     private let userInterrupt = AtomicBool()
     private let decoderInterrupt = AtomicBool()
@@ -160,6 +163,7 @@ private actor FFPlayerActor {
     private var currentURL: URL?
     private var currentVolume: Float32 = 1.0
     private var currentAudioDevice: AudioDevice?
+    private var currentAirPlayDevice: AirPlayDevice?
     private var jobID: UInt64 = 0
 
     /* ****************************************
@@ -170,6 +174,9 @@ private actor FFPlayerActor {
 
         let macAudio = MacAudio(ringBuffer: ringBuffer, numBuffers: NUM_AUDIO_BUFFERS)
         self.macAudio = macAudio
+
+        let airPlayAudio = AirPlayAudio(ringBuffer: ringBuffer, numBuffers: NUM_AUDIO_BUFFERS)
+        self.airPlayAudio = airPlayAudio
 
         let decoder = FFDecoder(ringBuffer: ringBuffer, shouldInterrupt: decoderInterrupt)
         self.decoder = decoder
@@ -194,15 +201,23 @@ private actor FFPlayerActor {
                 await self.emit(.needRestart)
             }
         }
+
+        airPlayAudio.onNeedRestart = { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.emit(.needRestart)
+            }
+        }
     }
 
     /* ****************************************
      *
      * ****************************************/
-    func start(url: URL, volume: Float, audioDevice: AudioDevice?, maxRetryCount: Int) {
+    func start(url: URL, volume: Float, audioDevice: AudioDevice?, airPlayDevice: AirPlayDevice?, maxRetryCount: Int) {
         currentURL = url
         currentVolume = volume
         currentAudioDevice = audioDevice
+        currentAirPlayDevice = airPlayDevice
         jobID += 1
 
         retryManager.reset(maxRetryCount: maxRetryCount)
@@ -235,11 +250,17 @@ private actor FFPlayerActor {
             debug("FFplayer load \(realURL)")
             ringBuffer.reset()
 
+            decoder.forcedOutput = currentAirPlayDevice != nil ? (AirPlayAudio.sampleRate, AirPlayAudio.channels) : nil
             try decoder.load(url: realURL)
             try fillRingBuffer()
 
-            try macAudio.start(format: decoder.format, audioDevice: currentAudioDevice)
-            macAudio.fadeInVolume(to: currentVolume)
+            if let airPlayDevice = currentAirPlayDevice {
+                airPlayAudio.setVolume(currentVolume)
+                try airPlayAudio.start(format: decoder.format, device: airPlayDevice)
+            } else {
+                try macAudio.start(format: decoder.format, audioDevice: currentAudioDevice)
+                macAudio.fadeInVolume(to: currentVolume)
+            }
 
             decoder.startDecodeThread()
 
@@ -255,6 +276,7 @@ private actor FFPlayerActor {
      * ****************************************/
     func stop() {
         macAudio.stop()
+        airPlayAudio.stop()
         decoder.stop()
 
         emit(.stateChanged(.stoped))
@@ -263,6 +285,7 @@ private actor FFPlayerActor {
         currentURL = nil
         currentVolume = 0
         currentAudioDevice = nil
+        currentAirPlayDevice = nil
 
         retryManager.reset(maxRetryCount: 0)
     }
@@ -290,7 +313,11 @@ private actor FFPlayerActor {
      * ****************************************/
     func setVolume(_ volume: Float) {
         currentVolume = volume
-        macAudio.setVolume(volume)
+        if currentAirPlayDevice != nil {
+            airPlayAudio.setVolume(volume)
+        } else {
+            macAudio.setVolume(volume)
+        }
     }
 
     /* ****************************************
@@ -308,6 +335,7 @@ private actor FFPlayerActor {
             let retryCount = retryManager.retryCount
 
             macAudio.stop()
+            airPlayAudio.stop()
             decoder.stop()
             emit(.stateChanged(.connecting))
 

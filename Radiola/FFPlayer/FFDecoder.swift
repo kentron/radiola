@@ -67,6 +67,9 @@ class FFDecoder {
     private var outSampleRate: Int32 = 0
     private var outChannels: Int32 = 0
 
+    /// When set, the decoder resamples to this rate and channel count instead of the stream's own.
+    var forcedOutput: (sampleRate: Int32, channels: Int32)?
+
     private var pcmBuffer = [UInt8]()
 
     private var prevNowPlaying = ""
@@ -202,8 +205,8 @@ class FFDecoder {
         }
 
         // Define output format ................
-        outSampleRate = codecContext.pointee.sample_rate
-        outChannels = min(2, codecContext.pointee.ch_layout.nb_channels)
+        outSampleRate = forcedOutput?.sampleRate ?? codecContext.pointee.sample_rate
+        outChannels = forcedOutput?.channels ?? min(2, codecContext.pointee.ch_layout.nb_channels)
 
         withUnsafeMutablePointer(to: &outLayout) { outLayoutPtr in
             av_channel_layout_default(outLayoutPtr, outChannels)

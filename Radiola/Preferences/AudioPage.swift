@@ -28,6 +28,13 @@ class AudioPage: PreferencesPage {
             name: Notification.Name.AudioDeviceChanged,
             object: nil)
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshDeviceCombo),
+            name: Notification.Name.AirPlayDevicesChanged,
+            object: nil)
+
+        AirPlayBrowser.shared.start()
         refreshDeviceCombo()
     }
 
@@ -60,6 +67,26 @@ class AudioPage: PreferencesPage {
             }
         }
 
+        // AirPlay receivers. Keep the selected one in the list even if it is not visible right now.
+        var airPlayDevices = AirPlayBrowser.shared.devices
+        if let selected = AirPlayDevice(uid: sel), !airPlayDevices.contains(selected) {
+            airPlayDevices.append(selected)
+        }
+
+        if !airPlayDevices.isEmpty {
+            deviceCombobox.menu?.addItem(.separator())
+        }
+
+        for d in airPlayDevices {
+            let title = String(format: NSLocalizedString("%@ (AirPlay)", comment: "Audio device name in settings. %@ is AirPlay device name"), d.name)
+            deviceCombobox.addItem(withTitle: title)
+            deviceCombobox.lastItem?.representedObject = d.uid
+
+            if d.uid == sel {
+                deviceCombobox.select(deviceCombobox.lastItem)
+            }
+        }
+
         if deviceCombobox.selectedItem == nil {
             deviceCombobox.selectItem(at: 0)
         }
@@ -69,7 +96,8 @@ class AudioPage: PreferencesPage {
      *
      * ****************************************/
     @objc private func deviceChanged(_ sender: Any) {
-        let deviceUID = (deviceCombobox.selectedItem?.representedObject as? AudioDevice)?.UID
+        let item = deviceCombobox.selectedItem?.representedObject
+        let deviceUID = (item as? AudioDevice)?.UID ?? (item as? String)
         if settings.audioDevice != deviceUID {
             debug("[Settings] Select audio device \(deviceUID ?? "nil")")
             settings.audioDevice = deviceUID
